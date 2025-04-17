@@ -316,81 +316,100 @@ async def handle_message(client: Client, message: Message):
             raise
 
     async def handle_upload():
-        file_size = os.path.getsize(file_path)
+    file_size = os.path.getsize(file_path)
+    
+    if file_size > SPLIT_SIZE:
+        await update_status(
+            status_message,
+            f"✂️ Splitting {download.name} ({format_size(file_size)})"
+        )
         
-        if file_size > SPLIT_SIZE:
-            await update_status(
-                status_message,
-                f"✂️ Splitting {download.name} ({format_size(file_size)})"
-            )
-            
-            split_files = await split_video_with_ffmpeg(
-                file_path,
-                os.path.splitext(file_path)[0],
-                SPLIT_SIZE
-            )
-            
-            try:
-                for i, part in enumerate(split_files):
-                    part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
-                    await update_status(
-                        status_message,
-                        f"📤 Uploading part {i+1}/{len(split_files)}\n"
-                        f"{os.path.basename(part)}"
-                    )
-                    
+        split_files = await split_video_with_ffmpeg(
+            file_path,
+            os.path.splitext(file_path)[0],
+            SPLIT_SIZE
+        )
+        
+        try:
+            for i, part in enumerate(split_files):
+                part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
+                await update_status(
+                    status_message,
+                    f"📤 Uploading part {i+1}/{len(split_files)}\n"
+                    f"{os.path.basename(part)}"
+                )
+                
+                try:
                     if USER_SESSION_STRING:
                         sent = await user.send_video(
                             DUMP_CHAT_ID, part, 
                             caption=part_caption,
                             progress=upload_progress
                         )
-                        await app.copy_message(
-                            message.chat.id, DUMP_CHAT_ID, sent.id
-                        )
+                        if sent and sent.video:
+                            await app.copy_message(
+                                message.chat.id, DUMP_CHAT_ID, sent.id
+                            )
                     else:
                         sent = await client.send_video(
                             DUMP_CHAT_ID, part,
                             caption=part_caption,
                             progress=upload_progress
                         )
-                        await client.send_video(
-                            message.chat.id, sent.video.file_id,
-                            caption=part_caption
-                        )
-                    os.remove(part)
-            finally:
-                for part in split_files:
-                    try: os.remove(part)
-                    except: pass
-        else:
-            await update_status(
-                status_message,
-                f"📤 Uploading {download.name}\n"
-                f"Size: {format_size(file_size)}"
-            )
-            
+                        if sent and sent.video:
+                            await client.send_video(
+                                message.chat.id, sent.video.file_id,
+                                caption=part_caption
+                            )
+                except Exception as e:
+                    logger.error(f"Error uploading part {i+1}: {e}")
+                    continue
+                finally:
+                    try:
+                        os.remove(part)
+                    except:
+                        pass
+        except Exception as e:
+            logger.error(f"Error in split files processing: {e}")
+    else:
+        await update_status(
+            status_message,
+            f"📤 Uploading {download.name}\n"
+            f"Size: {format_size(file_size)}"
+        )
+        
+        try:
             if USER_SESSION_STRING:
                 sent = await user.send_video(
                     DUMP_CHAT_ID, file_path,
                     caption=caption,
                     progress=upload_progress
                 )
-                await app.copy_message(
-                    message.chat.id, DUMP_CHAT_ID, sent.id
-                )
+                if sent and sent.video:
+                    await app.copy_message(
+                        message.chat.id, DUMP_CHAT_ID, sent.id
+                    )
             else:
                 sent = await client.send_video(
                     DUMP_CHAT_ID, file_path,
                     caption=caption,
                     progress=upload_progress
                 )
-                await client.send_video(
-                    message.chat.id, sent.video.file_id,
-                    caption=caption
-                )
+                if sent and sent.video:
+                    await client.send_video(
+                        message.chat.id, sent.video.file_id,
+                        caption=caption
+                    )
+        except Exception as e:
+            logger.error(f"Error uploading file: {e}")
+            await status_message.edit_text(f"Failed to upload file: {e}")
+            return
+    
+    try:
         if os.path.exists(file_path):
             os.remove(file_path)
+    except Exception as e:
+        logger.error(f"Error removing file: {e}")
 
     start_time = datetime.now()
     await handle_upload()
