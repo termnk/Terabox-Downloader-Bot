@@ -316,6 +316,7 @@ async def handle_message(client: Client, message: Message):
             raise
 
     async def handle_upload():
+        try:
     file_size = os.path.getsize(file_path)
     
     if file_size > SPLIT_SIZE:
