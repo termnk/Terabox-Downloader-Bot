@@ -458,7 +458,7 @@ async def handle_message(client: Client, message: Message):
                     part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
                     await update_status(
                         status_message,
-                        f"ðŸ"¤ Uploading part {i+1}/{len(split_files)}\n"
+                        f"ðŸ“¤ Uploading part {i+1}/{len(split_files)}\n"
                         f"{os.path.basename(part)}",
                         reply_markup=watch_markup
                     )
