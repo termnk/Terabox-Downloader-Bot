@@ -494,7 +494,7 @@ async def handle_message(client: Client, message: Message):
         else:
             await update_status(
                 status_message,
-                f"ðŸ"¤ Uploading {download.name}\n"
+                f"ðŸ“¤ Uploading {download.name}\n"
                 f"Size: {format_size(file_size)}",
                 reply_markup=watch_markup
             )
