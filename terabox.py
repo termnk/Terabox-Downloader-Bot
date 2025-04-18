@@ -11,11 +11,15 @@ from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import FloodWait
 from pymongo import MongoClient
 import time
+import uuid
 import urllib.parse
 from urllib.parse import urlparse
 import requests
 from flask import Flask, render_template
 from threading import Thread
+import os
+from bs4 import BeautifulSoup
+import aiohttp
 
 load_dotenv('config.env', override=True)
 logging.basicConfig(
@@ -76,10 +80,22 @@ if len(FSUB_ID) == 0:
 else:
     FSUB_ID = int(FSUB_ID)
 
+LINK_DUMP = os.environ.get('LINK_DUMP', '')
+if len(LINK_DUMP) == 0:
+    logging.error("LINK_DUMP variable is missing! Exiting now")
+    exit(1)
+else:
+    LINK_DUMP = int(LINK_DUMP)
+
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 if len(DATABASE_URL) == 0:
     logging.error("DATABASE_URL variable is missing! Exiting now")
     exit(1)
+
+SHORTENER_API = os.environ.get('SHORTENER_API', '')
+if len(SHORTENER_API) == 0:
+    logging.info("SHORTENER_API variable is missing!")
+    SHORTENER_API = None
 
 USER_SESSION_STRING = os.environ.get('USER_SESSION_STRING', '')
 if len(USER_SESSION_STRING) == 0:
@@ -103,11 +119,36 @@ if USER_SESSION_STRING:
 
 VALID_DOMAINS = [
     'terabox.com', 'nephobox.com', '4funbox.com', 'mirrobox.com', 
-    'momerybox.com', 'teraboxapp.com', '1024tera.com','1024terabox.com', 
+    'momerybox.com', 'teraboxapp.com', '1024tera.com', '1024terabox.com', 'teraboxshare.com',
     'terabox.app', 'gibibox.com', 'goaibox.com', 'terasharelink.com', 
     'teraboxlink.com', 'terafileshare.com'
 ]
 last_update_time = 0
+ZERO_SPEED_TIMEOUT = 60  # 5 minutes in seconds
+
+# Add these constants for thumbnail and watch URL
+BASE_URL = "https://opabhik.serv00.net/Watch.php?url="
+DOWNLOAD_BASE = "https://teradownloader.com/download?w=0&link="
+FSubLink = "https://t.me/am_films"  # Replace with your actual channel link
+START_IMAGE_URL = "https://envs.sh/rhi.jpg"  # Replace with your start image URL
+
+async def fetch_thumbnail(url):
+    """Fetch thumbnail URL from Terabox link"""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                response.raise_for_status()
+                page_content = await response.text()
+
+        soup = BeautifulSoup(page_content, "html.parser")
+        thumbnail = soup.find("meta", {"property": "og:image"})
+        return thumbnail["content"] if thumbnail else None
+    except Exception as e:
+        logger.error(f"Error fetching thumbnail: {e}")
+        return None
 
 async def is_user_member(client, user_id):
     try:
@@ -135,27 +176,39 @@ def format_size(size):
         return f"{size / (1024 * 1024 * 1024):.2f} GB"
 
 @app.on_message(filters.command("start"))
-async def start_command(client: Client, message: Message):
-    join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/am_films")
-    developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/GUARDIANff_bot")
-    repo69 = InlineKeyboardButton("ʀᴇᴘᴏ 🌐", url="https://github.com")
-    reply_markup = InlineKeyboardMarkup([[join_button, developer_button], [repo69]])
-    final_msg = "🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ.\n\nSend me a Terabox link to download files."
-    video_file_id = ""
+async def start_command(client, message):
+    sticker_message = await message.reply_sticker("CAACAgIAAxkBAAEMvrlm1JgGXbW1RXwvrdjbUqN_zltR_AACHxEAApQgCUrPlMAXIC3dCTUE")
+    await asyncio.sleep(2)
+    await sticker_message.delete()
+    user_mention = message.from_user.mention
     
-    if os.path.exists(video_file_id):
-        await client.send_video(
-            chat_id=message.chat.id,
-            video=video_file_id,
-            caption=final_msg,
-            reply_markup=reply_markup
+    # Check subscription
+    is_member = await is_user_member(client, message.from_user.id)
+    if not is_member:
+        join_button = InlineKeyboardButton("✨ Join Channel", url=FSubLink)
+        reply_markup = InlineKeyboardMarkup([[join_button]])
+        await message.reply_photo(
+            photo=START_IMAGE_URL,
+            caption="❌ You must join our channel to use this bot.\nClick the button below to join and then try again.",
+            reply_markup=reply_markup,
         )
-    else:
-        await message.reply_text(final_msg, reply_markup=reply_markup)
+        return
+    
+    reply_message = f"ᴡᴇʟᴄᴏᴍᴇ, {user_mention}.\n\n🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ. sᴇɴᴅ ᴍᴇ ᴀɴʏ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ɪ ᴡɪʟʟ ᴅᴏᴡɴʟᴏᴀᴅ ᴡɪᴛʜɪɴ ғᴇᴡ sᴇᴄᴏɴᴅs ᴀɴᴅ sᴇɴᴅ ɪᴛ ᴛᴏ ʏᴏᴜ ✨."
+    join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/AM_FILMS")
+    developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/GUARDIANff_bot")
+    reply_markup = InlineKeyboardMarkup([[join_button, developer_button]])
+    
+    # Send the start message with image
+    await message.reply_photo(
+        photo=START_IMAGE_URL,
+        caption=reply_message,
+        reply_markup=reply_markup
+    )
 
-async def update_status_message(status_message, text):
+async def update_status_message(status_message, text, reply_markup=None):
     try:
-        await status_message.edit_text(text)
+        await status_message.edit_text(text, reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Failed to update status message: {e}")
 
@@ -170,9 +223,13 @@ async def handle_message(client: Client, message: Message):
     is_member = await is_user_member(client, user_id)
 
     if not is_member:
-        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/am_films")
+        join_button = InlineKeyboardButton("✨ Join Channel", url=FSubLink)
         reply_markup = InlineKeyboardMarkup([[join_button]])
-        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
+        await message.reply_photo(
+            photo=START_IMAGE_URL,
+            caption="❌ You must join our channel to use this bot.\nClick the button below to join and then try again.",
+            reply_markup=reply_markup,
+        )
         return
     
     url = None
@@ -185,18 +242,70 @@ async def handle_message(client: Client, message: Message):
         await message.reply_text("Please provide a valid Terabox link.")
         return
 
+    # Fetch thumbnail from the Terabox link
+    thumbnail_url = await fetch_thumbnail(url)
+    
     encoded_url = urllib.parse.quote(url)
     final_url = f"https://teradlrobot.cheemsbackup.workers.dev/?url={encoded_url}"
+    watch_url = f"https://opabhik.serv00.net/Watch.php?url={encoded_url}"
+    watch_button = InlineKeyboardButton("ᴡᴀᴛᴄʜ ɴᴏᴡ", url=watch_url)
+    watch_markup = InlineKeyboardMarkup([[watch_button]])
+
+    # Send user ID and encoded URL to LINK_DUMP channel with thumbnail
+    log_message = (
+        f"#Log\n"
+        f"USER ID: tg://user?id={user_id}\n"
+        f"URL: {encoded_url}"
+    )
+    
+    if thumbnail_url:
+        await client.send_photo(
+            LINK_DUMP,
+            photo=thumbnail_url,
+            caption=log_message
+        )
+    else:
+        await client.send_message(LINK_DUMP, log_message)
 
     download = aria2.add_uris([final_url])
-    status_message = await message.reply_text("sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤")
+    
+    # Send initial message with thumbnail if available
+    if thumbnail_url:
+        status_message = await message.reply_photo(
+            photo=thumbnail_url,
+            caption="sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤",
+            reply_markup=watch_markup
+        )
+    else:
+        status_message = await message.reply_text("sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤", reply_markup=watch_markup)
 
     start_time = datetime.now()
+    last_active_time = time.time()
+    zero_speed_start = None
 
     while not download.is_complete:
         await asyncio.sleep(15)
         download.update()
         progress = download.progress
+
+        # Check for zero speed condition
+        current_speed = download.download_speed
+        if current_speed == 0:
+            if zero_speed_start is None:
+                zero_speed_start = time.time()
+            elif time.time() - zero_speed_start > ZERO_SPEED_TIMEOUT:
+                await update_status_message(
+                    status_message,
+                    "❌ ᴛᴀꜱᴋ ꜱᴛᴏᴘᴘᴇᴅ ʙʏ ʙᴏᴛ: ɴᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴘʀᴏɢʀᴇꜱꜱ ꜰᴏʀ 1 ᴍɪɴᴜᴛᴇꜱ",
+                    reply_markup=watch_markup
+                )
+                try:
+                    download.remove()
+                except:
+                    pass
+                return
+        else:
+            zero_speed_start = None
 
         elapsed_time = datetime.now() - start_time
         elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
@@ -210,10 +319,10 @@ async def handle_message(client: Client, message: Message):
             f"┠ sᴘᴇᴇᴅ: {format_size(download.download_speed)}/s\n"
             f"┠ ᴇᴛᴀ: {download.eta} | ᴇʟᴀᴘsᴇᴅ: {elapsed_minutes}m {elapsed_seconds}s\n"
             f"┖ ᴜsᴇʀ: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | ɪᴅ: {user_id}\n"
-            )
+        )
         while True:
             try:
-                await update_status_message(status_message, status_text)
+                await update_status_message(status_message, status_text, reply_markup=watch_markup)
                 break
             except FloodWait as e:
                 logger.error(f"Flood wait detected! Sleeping for {e.value} seconds")
@@ -226,7 +335,7 @@ async def handle_message(client: Client, message: Message):
         f"📥 ᴜsᴇʀ ʟɪɴᴋ: tg://user?id={user_id}\n\n"
         "[ᴘᴏᴡᴇʀᴇᴅ ʙʏ AM_FILMS ❤️🚀](https://t.me/AM_FILMS)"
     )
-
+    
     last_update_time = time.time()
     UPDATE_INTERVAL = 15
 
@@ -235,7 +344,7 @@ async def handle_message(client: Client, message: Message):
         current_time = time.time()
         if current_time - last_update_time >= UPDATE_INTERVAL:
             try:
-                await message.edit_text(text)
+                await message.edit_text(text, reply_markup=watch_markup)
                 last_update_time = current_time
             except FloodWait as e:
                 logger.warning(f"FloodWait: Sleeping for {e.value}s")
@@ -249,6 +358,18 @@ async def handle_message(client: Client, message: Message):
         elapsed_time = datetime.now() - start_time
         elapsed_minutes, elapsed_seconds = divmod(elapsed_time.seconds, 60)
 
+        # Check for zero upload speed
+        current_speed = current / elapsed_time.seconds if elapsed_time.seconds > 0 else 0
+        if current_speed == 0:
+            if elapsed_time.seconds > ZERO_SPEED_TIMEOUT:
+                await update_status_message(
+                    status_message,
+                    "❌ ᴛᴀꜱᴋ ꜱᴛᴏᴘᴘᴇᴅ ʙʏ ʙᴏᴛ: ɴᴏ ᴅᴏᴡɴʟᴏᴀᴅ ᴘʀᴏɢʀᴇꜱꜱ ꜰᴏʀ 1 ᴍɪɴᴜᴛᴇꜱ",
+                    reply_markup=watch_markup
+                )
+                return True  # Indicate we should stop
+        return False  # Continue upload
+
         status_text = (
             f"┏ ғɪʟᴇɴᴀᴍᴇ: {download.name}\n"
             f"┠ [{'★' * int(progress / 10)}{'☆' * (10 - int(progress / 10))}] {progress:.2f}%\n"
@@ -259,6 +380,7 @@ async def handle_message(client: Client, message: Message):
             f"┠ ᴇʟᴀᴘsᴇᴅ: {elapsed_minutes}m {elapsed_seconds}s\n"
             f"┖ ᴜsᴇʀ: <a href='tg://user?id={user_id}'>{message.from_user.first_name}</a> | ɪᴅ: {user_id}\n"
         )
+        
         await update_status(status_message, status_text)
 
     async def split_video_with_ffmpeg(input_path, output_prefix, split_size):
@@ -290,7 +412,7 @@ async def handle_message(client: Client, message: Message):
                 if current_time - last_progress_update >= UPDATE_INTERVAL:
                     elapsed = datetime.now() - start_time
                     status_text = (
-                        f"✂️ Splitting {os.path.basename(input_path)}\n"
+                        f"âœ‚ï¸� Splitting {os.path.basename(input_path)}\n"
                         f"Part {i+1}/{parts}\n"
                         f"Elapsed: {elapsed.seconds // 60}m {elapsed.seconds % 60}s"
                     )
@@ -316,101 +438,92 @@ async def handle_message(client: Client, message: Message):
             raise
 
     async def handle_upload():
-        try:
-    file_size = os.path.getsize(file_path)
-    
-    if file_size > SPLIT_SIZE:
-        await update_status(
-            status_message,
-            f"✂️ Splitting {download.name} ({format_size(file_size)})"
-        )
+        file_size = os.path.getsize(file_path)
         
-        split_files = await split_video_with_ffmpeg(
-            file_path,
-            os.path.splitext(file_path)[0],
-            SPLIT_SIZE
-        )
-        
-        try:
-            for i, part in enumerate(split_files):
-                part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
-                await update_status(
-                    status_message,
-                    f"📤 Uploading part {i+1}/{len(split_files)}\n"
-                    f"{os.path.basename(part)}"
-                )
-                
-                try:
+        if file_size > SPLIT_SIZE:
+            await update_status(
+                status_message,
+                f"âœ‚ï¸� Splitting {download.name} ({format_size(file_size)})",
+                reply_markup=watch_markup
+            )
+            
+            split_files = await split_video_with_ffmpeg(
+                file_path,
+                os.path.splitext(file_path)[0],
+                SPLIT_SIZE
+            )
+            
+            try:
+                for i, part in enumerate(split_files):
+                    part_caption = f"{caption}\n\nPart {i+1}/{len(split_files)}"
+                    await update_status(
+                        status_message,
+                        f"ðŸ"¤ Uploading part {i+1}/{len(split_files)}\n"
+                        f"{os.path.basename(part)}",
+                        reply_markup=watch_markup
+                    )
+                    
                     if USER_SESSION_STRING:
                         sent = await user.send_video(
                             DUMP_CHAT_ID, part, 
                             caption=part_caption,
-                            progress=upload_progress
+                            progress=upload_progress,
+                            reply_markup=watch_markup
                         )
-                        if sent and sent.video:
-                            await app.copy_message(
-                                message.chat.id, DUMP_CHAT_ID, sent.id
-                            )
+                        await app.copy_message(
+                            message.chat.id, DUMP_CHAT_ID, sent.id,
+                            reply_markup=watch_markup
+                        )
                     else:
                         sent = await client.send_video(
                             DUMP_CHAT_ID, part,
                             caption=part_caption,
-                            progress=upload_progress
+                            progress=upload_progress,
+                            reply_markup=watch_markup
                         )
-                        if sent and sent.video:
-                            await client.send_video(
-                                message.chat.id, sent.video.file_id,
-                                caption=part_caption
-                            )
-                except Exception as e:
-                    logger.error(f"Error uploading part {i+1}: {e}")
-                    continue
-                finally:
-                    try:
-                        os.remove(part)
-                    except:
-                        pass
-        except Exception as e:
-            logger.error(f"Error in split files processing: {e}")
-    else:
-        await update_status(
-            status_message,
-            f"📤 Uploading {download.name}\n"
-            f"Size: {format_size(file_size)}"
-        )
-        
-        try:
+                        await client.send_video(
+                            message.chat.id, sent.video.file_id,
+                            caption=part_caption,
+                            reply_markup=watch_markup
+                        )
+                    os.remove(part)
+            finally:
+                for part in split_files:
+                    try: os.remove(part)
+                    except: pass
+        else:
+            await update_status(
+                status_message,
+                f"ðŸ"¤ Uploading {download.name}\n"
+                f"Size: {format_size(file_size)}",
+                reply_markup=watch_markup
+            )
+            
             if USER_SESSION_STRING:
                 sent = await user.send_video(
                     DUMP_CHAT_ID, file_path,
                     caption=caption,
-                    progress=upload_progress
+                    progress=upload_progress,
+                    reply_markup=watch_markup
                 )
-                if sent and sent.video:
-                    await app.copy_message(
-                        message.chat.id, DUMP_CHAT_ID, sent.id
-                    )
+                await app.copy_message(
+                    message.chat.id, DUMP_CHAT_ID, sent.id,
+                    reply_markup=watch_markup
+                )
             else:
                 sent = await client.send_video(
                     DUMP_CHAT_ID, file_path,
                     caption=caption,
-                    progress=upload_progress
+                    progress=upload_progress,
+                    reply_markup=watch_markup
                 )
-                if sent and sent.video:
-                    await client.send_video(
-                        message.chat.id, sent.video.file_id,
-                        caption=caption
-                    )
-        except Exception as e:
-            logger.error(f"Error uploading file: {e}")
-            await status_message.edit_text(f"Failed to upload file: {e}")
-            return
-    
-    try:
+                await client.send_video(
+                    message.chat.id, sent.video.file_id,
+                    caption=caption,
+                    reply_markup=watch_markup
+                )
         if os.path.exists(file_path):
             os.remove(file_path)
-    except Exception as e:
-        logger.error(f"Error removing file: {e}")
 
     start_time = datetime.now()
     await handle_upload()
