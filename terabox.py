@@ -1,3 +1,4 @@
+
 from aria2p import API as Aria2API, Client as Aria2Client
 import asyncio
 from dotenv import load_dotenv
@@ -18,8 +19,6 @@ import requests
 from flask import Flask, render_template
 from threading import Thread
 import os
-from bs4 import BeautifulSoup
-import aiohttp
 
 load_dotenv('config.env', override=True)
 logging.basicConfig(
@@ -126,30 +125,6 @@ VALID_DOMAINS = [
 last_update_time = 0
 ZERO_SPEED_TIMEOUT = 60  # 5 minutes in seconds
 
-# Add these constants for thumbnail and watch URL
-BASE_URL = "https://opabhik.serv00.net/Watch.php?url="
-DOWNLOAD_BASE = "https://teradownloader.com/download?w=0&link="
-FSubLink = "https://t.me/am_films"  # Replace with your actual channel link
-START_IMAGE_URL = "https://envs.sh/rhi.jpg"  # Replace with your start image URL
-
-async def fetch_thumbnail(url):
-    """Fetch thumbnail URL from Terabox link"""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                response.raise_for_status()
-                page_content = await response.text()
-
-        soup = BeautifulSoup(page_content, "html.parser")
-        thumbnail = soup.find("meta", {"property": "og:image"})
-        return thumbnail["content"] if thumbnail else None
-    except Exception as e:
-        logger.error(f"Error fetching thumbnail: {e}")
-        return None
-
 async def is_user_member(client, user_id):
     try:
         member = await client.get_chat_member(FSUB_ID, user_id)
@@ -181,30 +156,20 @@ async def start_command(client, message):
     await asyncio.sleep(2)
     await sticker_message.delete()
     user_mention = message.from_user.mention
-    
-    # Check subscription
-    is_member = await is_user_member(client, message.from_user.id)
-    if not is_member:
-        join_button = InlineKeyboardButton("✨ Join Channel", url=FSubLink)
-        reply_markup = InlineKeyboardMarkup([[join_button]])
-        await message.reply_photo(
-            photo=START_IMAGE_URL,
-            caption="❌ You must join our channel to use this bot.\nClick the button below to join and then try again.",
-            reply_markup=reply_markup,
-        )
-        return
-    
     reply_message = f"ᴡᴇʟᴄᴏᴍᴇ, {user_mention}.\n\n🌟 ɪ ᴀᴍ ᴀ ᴛᴇʀᴀʙᴏx ᴅᴏᴡɴʟᴏᴀᴅᴇʀ ʙᴏᴛ. sᴇɴᴅ ᴍᴇ ᴀɴʏ ᴛᴇʀᴀʙᴏx ʟɪɴᴋ ɪ ᴡɪʟʟ ᴅᴏᴡɴʟᴏᴀᴅ ᴡɪᴛʜɪɴ ғᴇᴡ sᴇᴄᴏɴᴅs ᴀɴᴅ sᴇɴᴅ ɪᴛ ᴛᴏ ʏᴏᴜ ✨."
     join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/AM_FILMS")
     developer_button = InlineKeyboardButton("ᴅᴇᴠᴇʟᴏᴘᴇʀ ⚡️", url="https://t.me/GUARDIANff_bot")
     reply_markup = InlineKeyboardMarkup([[join_button, developer_button]])
-    
-    # Send the start message with image
-    await message.reply_photo(
-        photo=START_IMAGE_URL,
-        caption=reply_message,
-        reply_markup=reply_markup
-    )
+    video_file_id = "/app/Jet-Mirror.mp4"
+    if os.path.exists(video_file_id):
+        await client.send_video(
+            chat_id=message.chat.id,
+            video=video_file_id,
+            caption=reply_message,
+            reply_markup=reply_markup
+        )
+    else:
+        await message.reply_text(reply_message, reply_markup=reply_markup)
 
 async def update_status_message(status_message, text, reply_markup=None):
     try:
@@ -223,13 +188,9 @@ async def handle_message(client: Client, message: Message):
     is_member = await is_user_member(client, user_id)
 
     if not is_member:
-        join_button = InlineKeyboardButton("✨ Join Channel", url=FSubLink)
+        join_button = InlineKeyboardButton("ᴊᴏɪɴ ❤️🚀", url="https://t.me/am_films")
         reply_markup = InlineKeyboardMarkup([[join_button]])
-        await message.reply_photo(
-            photo=START_IMAGE_URL,
-            caption="❌ You must join our channel to use this bot.\nClick the button below to join and then try again.",
-            reply_markup=reply_markup,
-        )
+        await message.reply_text("ʏᴏᴜ ᴍᴜsᴛ ᴊᴏɪɴ ᴍʏ ᴄʜᴀɴɴᴇʟ ᴛᴏ ᴜsᴇ ᴍᴇ.", reply_markup=reply_markup)
         return
     
     url = None
@@ -242,42 +203,23 @@ async def handle_message(client: Client, message: Message):
         await message.reply_text("Please provide a valid Terabox link.")
         return
 
-    # Fetch thumbnail from the Terabox link
-    thumbnail_url = await fetch_thumbnail(url)
-    
     encoded_url = urllib.parse.quote(url)
     final_url = f"https://teradlrobot.cheemsbackup.workers.dev/?url={encoded_url}"
     watch_url = f"https://opabhik.serv00.net/Watch.php?url={encoded_url}"
     watch_button = InlineKeyboardButton("ᴡᴀᴛᴄʜ ɴᴏᴡ", url=watch_url)
     watch_markup = InlineKeyboardMarkup([[watch_button]])
 
-    # Send user ID and encoded URL to LINK_DUMP channel with thumbnail
+    # Send user ID and encoded URL to LINK_DUMP channel with watch button
     log_message = (
         f"#Log\n"
         f"USER ID: tg://user?id={user_id}\n"
-        f"URL: {encoded_url}"
+        f"URL: {encoded_url}\n\n"
+        f"Watch URL: {watch_url}"
     )
-    
-    if thumbnail_url:
-        await client.send_photo(
-            LINK_DUMP,
-            photo=thumbnail_url,
-            caption=log_message
-        )
-    else:
-        await client.send_message(LINK_DUMP, log_message)
+    await client.send_message(LINK_DUMP, log_message, reply_markup=watch_markup)
 
     download = aria2.add_uris([final_url])
-    
-    # Send initial message with thumbnail if available
-    if thumbnail_url:
-        status_message = await message.reply_photo(
-            photo=thumbnail_url,
-            caption="sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤",
-            reply_markup=watch_markup
-        )
-    else:
-        status_message = await message.reply_text("sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤", reply_markup=watch_markup)
+    status_message = await message.reply_text("sᴇɴᴅɪɴɢ ʏᴏᴜ ᴛʜᴇ ᴍᴇᴅɪᴀ...🤤", reply_markup=watch_markup)
 
     start_time = datetime.now()
     last_active_time = time.time()
